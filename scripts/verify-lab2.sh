@@ -85,8 +85,10 @@ fi
 
 RULES=$(aws s3api get-bucket-lifecycle-configuration --bucket "${BUCKET}" \
   --query 'length(Rules)' --output text 2>/dev/null || echo 0)
-[ "${RULES}" = "4" ] && ok "S3 lifecycle rules present" "${RULES} rules" \
-  || bad "S3 lifecycle rules present" "found ${RULES}, expected 4"
+# 5 rules per the Task 1 rubric: expire-raw-data, expire-raw-versions,
+# expire-processed-versions, expire-feature-versions, expire-datacapture.
+[ "${RULES}" = "5" ] && ok "S3 lifecycle rules present" "${RULES} rules" \
+  || bad "S3 lifecycle rules present" "found ${RULES}, expected 5"
 
 # ── Task 2: ingestion ──────────────────────────────────────────────────────────
 head2 "Task 2 - Data ingestion pipeline (25 pts)"
