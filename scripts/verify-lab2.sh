@@ -20,10 +20,13 @@ ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/nu
 BUCKET="${P}-data-${ACCOUNT_ID}"
 DB=$(echo "${PROJECT}_${ENVIRONMENT}" | tr '-' '_')
 
+# Colour only on a terminal: you commit this script's output, and a file full
+# of raw escape codes is unreadable for whoever grades it.
+if [ -t 1 ]; then G=$'\033[32m'; R=$'\033[31m'; B=$'\033[1m'; N=$'\033[0m'; else G=''; R=''; B=''; N=''; fi
 PASS=0; FAIL=0
-ok ()   { printf "  \033[32mPASS\033[0m  %-52s %s\n" "$1" "${2:-}"; PASS=$((PASS+1)); }
-bad ()  { printf "  \033[31mFAIL\033[0m  %-52s %s\n" "$1" "${2:-}"; FAIL=$((FAIL+1)); }
-head2 () { printf "\n\033[1m%s\033[0m\n" "$1"; }
+ok ()   { printf "  ${G}PASS${N}  %-52s %s\n" "$1" "${2:-}"; PASS=$((PASS+1)); }
+bad ()  { printf "  ${R}FAIL${N}  %-52s %s\n" "$1" "${2:-}"; FAIL=$((FAIL+1)); }
+head2 () { printf "\n${B}%s${N}\n" "$1"; }
 
 echo "NorthStar Lab 2 verification - account ${ACCOUNT_ID}, region ${REGION}"
 
@@ -121,7 +124,8 @@ aws s3 cp "s3://${BUCKET}/features/customers/" "${TMP}/features/" --recursive >/
 python3 - "${TMP}" <<'PY'
 import glob, sys
 tmp = sys.argv[1]
-G="\033[32mPASS\033[0m"; R="\033[31mFAIL\033[0m"
+tty = sys.stdout.isatty()
+G = "\033[32mPASS\033[0m" if tty else "PASS"; R = "\033[31mFAIL\033[0m" if tty else "FAIL"
 def line(status, label, detail=""):
     print(f"  {status}  {label:<52} {detail}")
 try:
@@ -264,7 +268,7 @@ else
 fi
 
 # ── Summary ────────────────────────────────────────────────────────────────────
-printf "\n\033[1mSummary: %d passed, %d failed\033[0m\n" "${PASS}" "${FAIL}"
+printf "\n${B}Summary: %d passed, %d failed${N}\n" "${PASS}" "${FAIL}"
 if [ "${FAIL}" -gt 0 ]; then
   echo "Fix the FAIL items above before submitting."
   exit 1
