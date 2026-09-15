@@ -8,6 +8,7 @@
 #
 #   1. Glue ENIs            - orphaned in the private subnet after job runs;
 #                             block subnet and security group deletion
+#                             (removed BEFORE destroy so it does not hang)
 #   2. SageMaker EFS        - Studio creates a filesystem Terraform never sees;
 #                             KEEPS BILLING and its mount target blocks the subnet
 #   3. SageMaker NFS SGs    - two auto-created security groups block VPC deletion
@@ -66,6 +67,20 @@ else
   echo "      not present"
 fi
 
+# ── 2b. Orphaned Glue ENIs, BEFORE destroy ────────────────────────────────────
+# Every Glue job run inside the VPC leaves its network interfaces behind in
+# "available" state. They pin the private subnet and the security group, and
+# terraform destroy waits about ten minutes on each before giving up. Detached
+# interfaces are safe to delete; do it first so destroy finishes in one pass.
+echo "[2b/7] Removing orphaned Glue network interfaces"
+for eni in $(aws ec2 describe-network-interfaces \
+    --filters "Name=status,Values=available" \
+    --query "NetworkInterfaces[?contains(Description, 'Glue')].NetworkInterfaceId" \
+    --output text 2>/dev/null); do
+  aws ec2 delete-network-interface --network-interface-id "${eni}" >/dev/null 2>&1 \
+    && echo "      deleted ENI ${eni}"
+done
+
 # ── 3. terraform destroy ───────────────────────────────────────────────────────
 echo "[3/7] terraform destroy"
 mkdir -p docs
@@ -73,6 +88,8 @@ terraform -chdir="${TF_DIR}" destroy -auto-approve -input=false ${TF_DESTROY_ARG
   | tee docs/lab2-destroy-output.txt | tail -5
 
 # ── 4. Orphaned SageMaker EFS (the one that keeps billing) ────────────────────
+# With retention_policy { home_efs_file_system = "Delete" } on the Domain this
+# finds nothing. It stays here for Domains created without it.
 echo "[4/7] Removing orphaned SageMaker Studio EFS filesystems"
 for fs in $(aws efs describe-file-systems --query 'FileSystems[*].FileSystemId' --output text 2>/dev/null); do
   for mt in $(aws efs describe-mount-targets --file-system-id "${fs}" \
@@ -161,8 +178,10 @@ done
 # ── 7. Verify nothing billable survives ───────────────────────────────────────
 echo "[7/7] Verifying teardown"
 fail=0
+# The CLI applies --query per page of a paginated response, so `length(...)`
+# can print one number per page. Sum whatever comes back.
 check () {
-  n=$(eval "$2" 2>/dev/null || echo 0)
+  n=$(eval "$2" 2>/dev/null | awk '{ s += $1 } END { print s + 0 }')
   [ -z "${n}" ] && n=0
   if [ "${n}" = "0" ]; then
     printf "      %-22s OK\n" "$1"
