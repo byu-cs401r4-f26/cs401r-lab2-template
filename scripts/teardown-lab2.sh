@@ -209,8 +209,24 @@ check "Feature groups"    "aws sagemaker list-feature-groups --query 'length(Fea
 check "EFS filesystems"   "aws efs describe-file-systems --query 'length(FileSystems)' --output text"
 check "Glue jobs"         "aws glue list-jobs --query 'length(JobNames)' --output text"
 check "NorthStar VPCs"    "aws ec2 describe-vpcs --filters Name=tag:Project,Values=${PROJECT} --query 'length(Vpcs)' --output text"
-check "Lineage contexts"  "aws sagemaker list-contexts --query 'length(ContextSummaries)' --output text"
-check "Lineage artifacts" "aws sagemaker list-artifacts --query 'length(ArtifactSummaries)' --output text"
+# Lineage contexts and artifacts are metadata: SageMaker does not bill for
+# them, and leftovers do not block the next terraform apply (re-applied with 33
+# present on 2026-11-07). Step 6 removes what it can. What survives belongs to
+# things kept on purpose -- chiefly the Model Registry packages Lab 4 created
+# and Lab 5 deploys -- and SageMaker refuses to delete those. Counting them as
+# STILL PRESENT failed this teardown for every account that had a Lab 4
+# package, with "Resources may still be billing" when nothing was (35 left,
+# 2026-11-07). Report the count; never fail on it. A failed AWS call still
+# fails, as in check().
+info () {
+  if ! raw=$(eval "$2" 2>/dev/null); then
+    printf "      %-22s CHECK FAILED (AWS call errored; credentials/region?)\n" "$1"; fail=1; return
+  fi
+  n=$(printf '%s\n' "${raw}" | awk '{ s += $1 } END { print s + 0 }')
+  printf "      %-22s %s left (metadata, not billed; not a failure)\n" "$1" "${n}"
+}
+info  "Lineage contexts"  "aws sagemaker list-contexts --query 'length(ContextSummaries)' --output text"
+info  "Lineage artifacts" "aws sagemaker list-artifacts --query 'length(ArtifactSummaries)' --output text"
 check "Glue databases"    "aws glue get-databases --query 'length(DatabaseList)' --output text"
 
 echo ""
